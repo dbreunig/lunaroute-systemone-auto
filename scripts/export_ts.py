@@ -78,10 +78,18 @@ export interface Pattern {{
 """
 
 
-def load_monitor():
+def load_monitor(tuned: Path = TUNED):
+    """The program as written, plus any per-field thresholds a ReAnchor run saved.
+
+    A saved program also carries the signature it was tuned with, which goes stale as soon as a
+    question is revised. Question text always comes from rules.py; only thresholds come from the file.
+    """
     monitor = AutoModeMonitor()
-    if TUNED.exists():
-        monitor.load(str(TUNED))
+    if tuned.exists():
+        fields = (json.loads(tuned.read_text()).get("judge") or {}).get("fields") or {}
+        merged = {**monitor.judge.fields, **fields}
+        DecisionState(monitor.judge.signature, merged, system_one=True)  # raises on unknown fields or bad values
+        monitor.judge.fields = merged
     return monitor
 
 
