@@ -12,7 +12,9 @@ import math
 BYTES_PER_TOKEN = 3.8
 
 # Caps for models whose limits are known, keyed provider/id. Exported to the TypeScript extension.
-KNOWN_CAPS = {"lunaroute/djev": {"max_questions": 32, "token_budget": 4000}}
+# djev: 8 questions per request measured best on dev (89.1% exact vs 85.9% at 16 and 32, and the only
+# sizes with no false allows were 8 and 16); its hard ceiling is 32.
+KNOWN_CAPS = {"lunaroute/djev": {"max_questions": 8, "token_budget": 4000}}
 
 
 def estimate(value) -> int:
@@ -53,3 +55,30 @@ class Batched:
         for names in pack(state, questions, self.max_questions, self.token_budget):
             answers.update(self.inner(state=state, questions={n: questions[n] for n in names}))
         return answers
+
+
+class Retrying:
+    """Retry a decision client on rate limits with exponential backoff (benchmarks only).
+
+    The Pi extension does not retry: a rate-limited call fails closed to ask.
+    """
+
+    supports_decision_requests = True
+
+    def __init__(self, inner, attempts: int = 8, base_delay: float = 5.0, sleep=None):
+        import time
+
+        self.inner = inner
+        self.attempts = attempts
+        self.base_delay = base_delay
+        self.sleep = sleep or time.sleep
+
+    def __call__(self, state, questions):
+        for attempt in range(self.attempts):
+            try:
+                return self.inner(state=state, questions=questions)
+            except Exception as e:  # noqa: BLE001 - only rate limits are retried
+                if "RateLimit" not in type(e).__name__ or attempt == self.attempts - 1:
+                    raise
+                self.sleep(self.base_delay * 2**attempt)
+        raise AssertionError("unreachable")

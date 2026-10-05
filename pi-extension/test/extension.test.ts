@@ -62,13 +62,13 @@ test("read-only calls finish in code: no session walk, no classifier", async () 
   assert.match(h.log.status, /system-one: allow · lunaroute\/djev/);
 });
 
-test("judged calls walk the session once and ask every question once, in batches djev accepts", async () => {
+test("judged calls walk the session once and ask every question once, in batches of djev's size", async () => {
   const h = harness();
   assert.equal(await h.toolCall("bash", { command: "npm run build" }), undefined);
   assert.equal(h.log.branch, 1);
   assert.equal(h.log.asked.length, 127);
   assert.equal(new Set(h.log.asked).size, 127);
-  assert.ok(h.log.batchSizes.every((n) => n <= 32) && h.log.batchSizes.length === h.log.classify);
+  assert.ok(h.log.batchSizes.every((n) => n <= 8) && h.log.batchSizes.length === h.log.classify);
 });
 
 test("HARD blocks never prompt", async () => {

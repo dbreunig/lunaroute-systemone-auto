@@ -23,7 +23,7 @@ from dspy.experimental import ReAnchor, TypeSafe
 
 from bench.cases import CASES
 from bench.holdout import HOLDOUT
-from jev_auto.clients import KNOWN_CAPS, Batched
+from jev_auto.clients import KNOWN_CAPS, Batched, Retrying
 from jev_auto.program import AutoModeMonitor
 from jev_auto.state import default_environment
 
@@ -116,12 +116,13 @@ def main():
     parser.add_argument("--set", choices=["dev", "holdout"], default="dev", help="dev tunes; holdout only measures")
     parser.add_argument("--model", choices=["jev", "djev"], default="jev", help="jev: TypeSafe jev-latest; djev: lunaroute/djev")
     parser.add_argument("--batch", type=int, help="djev: override questions per request (exploration)")
+    parser.add_argument("--workers", type=int, default=8, help="cases judged in parallel")
     args = parser.parse_args()
 
     if args.model == "djev":
         lm = TypeSafe("djev", base_url="https://gw.lunaroute.com", api_key=os.environ["LUNAROUTE_API_KEY"], cache=not args.no_cache, timeout=60)
         caps = {**KNOWN_CAPS["lunaroute/djev"], **({"max_questions": args.batch} if args.batch else {})}
-        client = Batched(lm, **caps)  # with the default caps, the same batches the Pi extension sends
+        client = Batched(Retrying(lm), **caps)  # with the default caps, the same batches the Pi extension sends
     else:
         lm = client = TypeSafe(cache=not args.no_cache, timeout=60)
     dspy.configure(lm=client, max_history_size=10_000)
@@ -130,7 +131,7 @@ def main():
     monitor = AutoModeMonitor()
     report = {"run": datetime.now().isoformat(timespec="seconds"), "set": args.set, "model": lm.model, "cases": len(cases)}
 
-    rows = evaluate(monitor, cases)
+    rows = evaluate(monitor, cases, workers=args.workers)
     report["baseline"] = summarize(rows)
     report["baseline_rows"] = rows
     print_report(f"{args.set}: {len(cases)} cases", rows, report["baseline"])

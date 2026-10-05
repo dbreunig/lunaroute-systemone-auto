@@ -56,4 +56,30 @@ def test_batched_asks_every_question_once_with_the_same_state():
 
 
 def test_djev_caps_are_declared():
-    assert KNOWN_CAPS["lunaroute/djev"] == {"max_questions": 32, "token_budget": 4000}
+    assert KNOWN_CAPS["lunaroute/djev"] == {"max_questions": 8, "token_budget": 4000}
+
+
+class TypeSafeRateLimitError(Exception):
+    pass
+
+
+def test_retrying_waits_out_rate_limits_and_reraises_other_errors():
+    from jev_auto.clients import Retrying
+
+    calls, sleeps = [], []
+
+    def flaky(state, questions):
+        calls.append(1)
+        if len(calls) < 3:
+            raise TypeSafeRateLimitError("429")
+        return {"q": {"noul": 0.4}}
+
+    client = Retrying(flaky, attempts=5, base_delay=1.0, sleep=sleeps.append)
+    assert client(state={}, questions={"q": {}}) == {"q": {"noul": 0.4}}
+    assert sleeps == [1.0, 2.0]
+
+    def broken(state, questions):
+        raise ValueError("bad request")
+
+    with pytest.raises(ValueError):
+        Retrying(broken, sleep=sleeps.append)(state={}, questions={})
