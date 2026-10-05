@@ -212,3 +212,18 @@ test("estimates count UTF-8 bytes, so non-ASCII text is not underestimated", asy
   await makeClassifier(reg, { ...DJEV, contextWindow: 1200 }, fakeFetch(500, {}).impl)(cjk, AbortSignal.timeout(1000));
   for (const p of parts) assert.ok(Buffer.byteLength(JSON.stringify(p)) / 3.8 <= 1200);
 });
+
+test("known models start with their caps: no learning round trips", async () => {
+  const sizes: number[] = [];
+  const reg = {
+    classify: async (_m: unknown, req: any) => {
+      const n = Object.keys(req.questions).length;
+      if (n > 32) return LIMIT;
+      sizes.push(n);
+      return { stopReason: "stop", answers: Object.fromEntries(Object.keys(req.questions).map((k) => [k, { type: "bool", probability: 0.2 }])) };
+    },
+    getApiKeyAndHeaders: async () => ({ ok: true }),
+  };
+  await makeClassifier(reg, { ...DJEV, contextWindow: 32768 }, fakeFetch(500, {}).impl, { max_questions: 32, token_budget: 4000 })(many, AbortSignal.timeout(1000));
+  assert.ok(sizes.every((n) => n <= 32) && sizes.length >= 3, "first call already batched");
+});

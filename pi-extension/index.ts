@@ -19,6 +19,7 @@ import { branchToEntries, environmentFor, withMeta } from "./src/inputs.ts";
 import { CANCELLED, type Classify, decide } from "./src/monitor.ts";
 import type { Action } from "./src/prechecks.ts";
 import { DEFAULT_MODEL, modelWarnings, parseModel, readModel, settingsPath, writeModel } from "./src/settings.ts";
+import { KNOWN_CAPS } from "./src/program.generated.ts";
 import { makeClassifier } from "./src/transport.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
@@ -61,7 +62,7 @@ export default function (pi: ExtensionAPI) {
     const model = resolve(ctx, ref);
     let classifier: Classify | null = null;
     if (model) {
-      classifier = classifiers.get(ref) ?? makeClassifier(ctx.modelRegistry as never, model);
+      classifier = classifiers.get(ref) ?? makeClassifier(ctx.modelRegistry as never, model, fetch, KNOWN_CAPS[ref]);
       classifiers.set(ref, classifier); // keeps a known-broken provider adapter from being retried every call
     }
     const action: Action = { tool: event.toolName, input: (event.input ?? {}) as Record<string, unknown> };

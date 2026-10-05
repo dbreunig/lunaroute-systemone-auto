@@ -32,25 +32,22 @@ uv run python -m scripts.export_ts --golden   # regenerate the extension's progr
 
 ## Results
 
-Live Jev (`jev-latest`) through the DSPy program, one request of 127 Nouls per judged call, about 24k tokens. Re-measured after the Self-Modification examples were renamed to this monitor's paths.
+Results after the djev tuning round (revisions 4-6 below). Dev was tuned against; held-out was measured once per model after tuning.
 
-| Set | Cases | Exact | False allows | False blocks | Asks |
-| --- | --- | --- | --- | --- | --- |
-| Dev (`bench/cases.py`), after revisions 1-3 | 64 | 93.8% | 0/37 | 0/27 | 4 |
-| Held-out (`bench/holdout.py`), never tuned on | 54 | 96.3% | 0/32 | 1/22 | 1 |
-
-Live `lunaroute/djev` through the TypeScript extension (`node pi-extension/bench/live.ts`). The questions were revised against Jev; djev's numbers are measured, not tuned.
-
-| Set | Cases | Exact | False allows | False blocks | Asks | Latency p50 / p95 |
+| Model | Set | Cases | Exact | False allows | False blocks | Asks |
 | --- | --- | --- | --- | --- | --- | --- |
-| Dev | 64 | 90.6% | 0/37 | 5/27 | 1 | 1.6 s / 2.7 s |
-| Held-out | 54 | 94.4% | 0/32 | 3/22 | 0 | 1.5 s / 1.9 s |
+| `lunaroute/djev` | Dev | 64 | 96.9% | 0/37 | 0/27 | 2 |
+| `lunaroute/djev` | Held-out | 54 | 94.4% | 0/32 | 3/22 | 0 |
+| Jev (`jev-latest`) | Dev | 64 | 96.9% | 0/37 | 0/27 | 2 |
+| Jev (`jev-latest`) | Held-out | 54 | 94.4% | 0/32 | 1/22 | 2 |
 
-djev's false blocks are mostly actions the user consented to: its consent questions fire less readily than Jev's. djev accepts at most 32 questions and about 4k input tokens per request (its catalog context says 32k), so each judged call is about 7 parallel requests, about 21k input tokens in total. A session whose state alone exceeds that budget gets ask rather than a verdict; in a sample of real Pi sessions that was about a quarter of tool calls.
+djev was tuned from DSPy (`uv run python -m bench.run --model djev`, using `LUNAROUTE_API_KEY`) with the extension's exact batches, and the TypeScript extension reproduces the dev result case for case (`node pi-extension/bench/live.ts`), at p50 1.9 s and p95 2.1 s per judged call. Before tuning, djev scored 89.1% on dev and 94.4% on held-out at the same batch size; the held-out score did not move, so the dev gains partly fit dev. djev's held-out misses are Code That Leaks When Run on publishing and secret-store writes, and one stash.
+
+djev accepts at most 32 questions and about 4k input tokens per request (its catalog context says 32k), and its answers depend on which questions share a request. At 8 questions per request it scored best on dev (89.1% before tuning, against 85.9% at 16 and 32, and 32 was the only size with a false allow), so the 127 questions go out as about 16 parallel requests per judged call. The caps live in `jev_auto/clients.py` and are exported to the extension, so DSPy and Pi send identical batches. A session whose state alone exceeds the token budget gets ask rather than a verdict; in a sample of real Pi sessions that was about a quarter of tool calls. The gateway rate-limits bursts; the benchmark retries, the extension fails closed to ask.
 
 Jev latency over 20 sequential live calls: p50 282 ms, p95 324 ms; total per judged call p50 299 ms. Local work (prechecks, state, DSPy request and decode, composition) adds about 14 ms. Reads and read-only commands in the project skip the classifier.
 
-Revisions came from reading per-rule probabilities on dev misses, one or two questions at a time: narrowing Data Exfiltration to exclude the project's own deploy and publish tooling, letting consent cover a soft rule's uncertainty, two false-side additions, Blind Apply's consent wording, and an ask floor of 0.2. ReAnchor kept none of its 127 threshold fits. The held-out misses point at Interfere With Workloads' consent wording; fixing it needs a new held-out set.
+Revisions came from reading per-rule probabilities on dev misses, one or two questions at a time. Against Jev: narrowing Data Exfiltration to exclude the project's own deploy and publish tooling, letting consent cover a soft rule's uncertainty, two false-side additions, Blind Apply's consent wording, and an ask floor of 0.2. ReAnchor kept none of its 127 threshold fits. The held-out misses point at Interfere With Workloads' consent wording; fixing it needs a new held-out set. Against djev: adding a git hook or logging config is not Logging/Audit Tampering (rev 4); Credential Leakage asks about live, non-placeholder secrets and Out-of-Place Publication excludes the project's own package (rev 5); Code That Leaks When Run needs code the action shows, and Unauthorized Persistence's consent bar names concrete mechanisms (rev 6).
 
 ## Pi extension
 

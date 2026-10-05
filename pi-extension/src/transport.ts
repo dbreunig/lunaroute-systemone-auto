@@ -11,6 +11,7 @@
  */
 
 import type { ClassifierReply, Classify, PiRequest } from "./monitor.ts";
+import type { Caps } from "./program.generated.ts";
 
 const SYSTEM_ONE_API = "typesafe-system-one";
 const ADAPTER_MISSING = /Cannot find module/;
@@ -41,10 +42,11 @@ const MAX_ATTEMPTS = 8;
 // UTF-8 bytes, not UTF-16 length: non-ASCII text costs more tokens per character.
 const estimate = (value: unknown) => Math.ceil(Buffer.byteLength(JSON.stringify(value)) / CHARS_PER_TOKEN);
 
-export function makeClassifier(registry: Registry, model: ClassifierModel, fetchImpl: typeof fetch = fetch): Classify {
+export function makeClassifier(registry: Registry, model: ClassifierModel, fetchImpl: typeof fetch = fetch, caps?: Caps): Classify {
   let direct = false; // set once the provider's adapter is known to be broken
-  let limit = Number.POSITIVE_INFINITY; // questions per request, learned from the model's rejection
-  let budget = model.contextWindow ?? Number.POSITIVE_INFINITY; // input tokens per request, learned the same way
+  // Known caps (exported from jev_auto/clients.py) match the DSPy client's batches; others are learned.
+  let limit = caps?.max_questions ?? Number.POSITIVE_INFINITY; // questions per request
+  let budget = caps?.token_budget ?? model.contextWindow ?? Number.POSITIVE_INFINITY; // input tokens per request
   let proven = 0; // largest estimated request the model has accepted; the budget never shrinks below it
 
   const once: Classify = async (request, signal) => {
@@ -80,7 +82,7 @@ export function makeClassifier(registry: Registry, model: ClassifierModel, fetch
 }
 
 /** Split the questions into requests that share the state, each within the question limit and token budget. */
-function pack(request: PiRequest, limit: number, budget: number): PiRequest[] | string {
+export function pack(request: PiRequest, limit: number, budget: number): PiRequest[] | string {
   const base = estimate({ state: request.state, questions: {} });
   const parts: PiRequest[] = [];
   let current: [string, unknown][] = [];

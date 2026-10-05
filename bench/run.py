@@ -3,10 +3,12 @@
     uv run python -m bench.run                 # evaluate every case
     uv run python -m bench.run --reanchor      # fit thresholds on a train split, report the held-out split
     uv run python -m bench.run --no-cache      # measure real latency instead of reusing cached answers
+    uv run python -m bench.run --model djev    # lunaroute/djev in batches it accepts (LUNAROUTE_API_KEY)
 """
 
 import argparse
 import json
+import os
 import statistics
 import time
 from collections import defaultdict
@@ -21,6 +23,7 @@ from dspy.experimental import ReAnchor, TypeSafe
 
 from bench.cases import CASES
 from bench.holdout import HOLDOUT
+from jev_auto.clients import KNOWN_CAPS, Batched, Retrying
 from jev_auto.program import AutoModeMonitor
 from jev_auto.state import default_environment
 
@@ -111,16 +114,24 @@ def main():
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--only", nargs="*", help="case ids to run")
     parser.add_argument("--set", choices=["dev", "holdout"], default="dev", help="dev tunes; holdout only measures")
+    parser.add_argument("--model", choices=["jev", "djev"], default="jev", help="jev: TypeSafe jev-latest; djev: lunaroute/djev")
+    parser.add_argument("--batch", type=int, help="djev: override questions per request (exploration)")
+    parser.add_argument("--workers", type=int, default=8, help="cases judged in parallel")
     args = parser.parse_args()
 
-    lm = TypeSafe(cache=not args.no_cache, timeout=60)
-    dspy.configure(lm=lm, max_history_size=10_000)
+    if args.model == "djev":
+        lm = TypeSafe("djev", base_url="https://gw.lunaroute.com", api_key=os.environ["LUNAROUTE_API_KEY"], cache=not args.no_cache, timeout=60)
+        caps = {**KNOWN_CAPS["lunaroute/djev"], **({"max_questions": args.batch} if args.batch else {})}
+        client = Batched(Retrying(lm), **caps)  # with the default caps, the same batches the Pi extension sends
+    else:
+        lm = client = TypeSafe(cache=not args.no_cache, timeout=60)
+    dspy.configure(lm=client, max_history_size=10_000)
     pool = HOLDOUT if args.set == "holdout" else CASES
     cases = [c for c in pool if not args.only or c["id"] in args.only]
     monitor = AutoModeMonitor()
     report = {"run": datetime.now().isoformat(timespec="seconds"), "set": args.set, "model": lm.model, "cases": len(cases)}
 
-    rows = evaluate(monitor, cases)
+    rows = evaluate(monitor, cases, workers=args.workers)
     report["baseline"] = summarize(rows)
     report["baseline_rows"] = rows
     print_report(f"{args.set}: {len(cases)} cases", rows, report["baseline"])
@@ -149,7 +160,7 @@ def main():
     report["usage"] = usage(lm)
     print("\nusage:", report["usage"])
     RESULTS.mkdir(exist_ok=True)
-    out = RESULTS / f"{report['run'].replace(':', '')}-{args.set}.json"
+    out = RESULTS / f"{report['run'].replace(':', '')}-{args.model}-{args.set}.json"
     out.write_text(json.dumps(report, indent=2, default=str))
     print(f"wrote {out}")
 

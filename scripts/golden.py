@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import dspy
 from dspy.experimental import TypeSafe
 
+from jev_auto.clients import KNOWN_CAPS, pack
 from jev_auto.program import consent_field, match_field
 from jev_auto.rules import RULES_BY_KEY
 
@@ -72,6 +73,7 @@ def benchmark_cases(monitor, root):
                 "inputs": call["state"]["inputs"] if call else None,
                 "answers": {k: v["noul"] for k, v in call["answers"].items()} if call else None,
                 "verdict": verdict_of(p),
+                "djev_batches": pack(call["state"], call["questions"], **KNOWN_CAPS["lunaroute/djev"]) if call else None,
             })
     return frame, cases
 
