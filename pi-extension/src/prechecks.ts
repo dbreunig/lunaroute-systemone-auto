@@ -87,6 +87,8 @@ export function isFastPath(action: Action, cwd: string): boolean {
   const args = action.input ?? {};
   if (action.tool === "read") {
     const path = asString(args.path);
+    // Pi trims, strips a leading @, and converts file:// URLs before reading; those paths can point anywhere.
+    if (path !== path.trim() || path.startsWith("@") || path.startsWith("file:")) return false;
     return inside(path, cwd) && !SENSITIVE_PATH.test(path);
   }
   if (action.tool !== "bash") return false;

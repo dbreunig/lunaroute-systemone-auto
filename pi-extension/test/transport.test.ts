@@ -177,3 +177,38 @@ test("concurrent calls each retry after another call has already learned the cap
   const replies = await Promise.all([1, 2, 3, 4].map(() => classify(many, AbortSignal.timeout(2000))));
   assert.deepEqual(replies.map((r) => r.stopReason), ["stop", "stop", "stop", "stop"]);
 });
+
+test("an invalid-request rejection at a size that already worked does not shrink the budget", async () => {
+  let failNext = false;
+  const sizes: number[] = [];
+  const reg = {
+    classify: async (_m: unknown, req: any) => {
+      if (tokens(req) > 1000) return INVALID;
+      if (failNext) return ((failNext = false), INVALID); // a transient or content rejection, not a size one
+      sizes.push(tokens(req));
+      return { stopReason: "stop", answers: Object.fromEntries(Object.keys(req.questions).map((n) => [n, { type: "bool", probability: 0.2 }])) };
+    },
+    getApiKeyAndHeaders: async () => ({ ok: true }),
+  };
+  const classify = makeClassifier(reg, { ...DJEV, contextWindow: 32768 }, fakeFetch(500, {}).impl);
+  await classify(many, AbortSignal.timeout(1000));
+  const learned = Math.max(...sizes);
+  failNext = true;
+  const failed = await classify(many, AbortSignal.timeout(1000));
+  assert.equal(failed.stopReason, "error", "the non-size rejection surfaces as an error");
+  sizes.length = 0;
+  const after = await classify(many, AbortSignal.timeout(1000));
+  assert.equal(after.stopReason, "stop");
+  assert.ok(Math.max(...sizes) >= learned * 0.9, "budget kept near the proven size");
+});
+
+test("estimates count UTF-8 bytes, so non-ASCII text is not underestimated", async () => {
+  const parts: any[] = [];
+  const reg = {
+    classify: async (_m: unknown, req: any) => (parts.push(req), { stopReason: "stop", answers: Object.fromEntries(Object.keys(req.questions).map((n) => [n, { type: "bool", probability: 0.2 }])) }),
+    getApiKeyAndHeaders: async () => ({ ok: true }),
+  };
+  const cjk = { ...many, state: { ...many.state, inputs: { note: "漢".repeat(600) } } };
+  await makeClassifier(reg, { ...DJEV, contextWindow: 1200 }, fakeFetch(500, {}).impl)(cjk, AbortSignal.timeout(1000));
+  for (const p of parts) assert.ok(Buffer.byteLength(JSON.stringify(p)) / 3.8 <= 1200);
+});

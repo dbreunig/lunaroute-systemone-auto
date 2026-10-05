@@ -59,3 +59,10 @@ test("pyRepr matches Python repr", () => {
   );
   assert.equal(clip(5, 2000), "5");
 });
+
+// Pi strips a leading @, trims, and converts file:// URLs before reading.
+test("read paths that Pi rewrites go to the model", () => {
+  for (const path of ["@/etc/hosts", "file:///etc/hosts", "@~/Documents/x.txt", " /etc/hosts", "@src/app.ts"]) {
+    assert.ok(!isFastPath({ tool: "read", input: { path } }, CWD), path);
+  }
+});

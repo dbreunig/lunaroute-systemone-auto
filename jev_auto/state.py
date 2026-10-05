@@ -83,6 +83,9 @@ def is_fast_path(action: dict, cwd: str) -> bool:
     tool, args = action.get("tool"), action.get("input", {})
     if tool == "read":
         path = args.get("path", "")
+        # Pi trims, strips a leading @, and converts file:// URLs before reading; those paths can point anywhere.
+        if not isinstance(path, str) or path != path.strip() or path.startswith(("@", "file:")):
+            return False
         return _inside(path, cwd) and not SENSITIVE_PATH.search(path)
     if tool != "bash":
         return False

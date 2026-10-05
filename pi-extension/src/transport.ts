@@ -33,17 +33,19 @@ export interface Registry {
 
 const QUESTION_LIMIT = /max_questions of (\d+)/;
 const INVALID_REQUEST = /rejected the request as invalid/;
-// Characters per token for budgeting. djev measured 4.4 on this program; lower is safer.
+// Bytes per token for budgeting. djev measured 4.4 on this program; lower is safer.
 const CHARS_PER_TOKEN = 3.8;
 const SHRINK = 0.75;
 const MAX_ATTEMPTS = 8;
 
-const estimate = (value: unknown) => Math.ceil(JSON.stringify(value).length / CHARS_PER_TOKEN);
+// UTF-8 bytes, not UTF-16 length: non-ASCII text costs more tokens per character.
+const estimate = (value: unknown) => Math.ceil(Buffer.byteLength(JSON.stringify(value)) / CHARS_PER_TOKEN);
 
 export function makeClassifier(registry: Registry, model: ClassifierModel, fetchImpl: typeof fetch = fetch): Classify {
   let direct = false; // set once the provider's adapter is known to be broken
   let limit = Number.POSITIVE_INFINITY; // questions per request, learned from the model's rejection
   let budget = model.contextWindow ?? Number.POSITIVE_INFINITY; // input tokens per request, learned the same way
+  let proven = 0; // largest estimated request the model has accepted; the budget never shrinks below it
 
   const once: Classify = async (request, signal) => {
     if (!direct) {
@@ -61,14 +63,17 @@ export function makeClassifier(registry: Registry, model: ClassifierModel, fetch
       const parts = pack(request, limit, budget);
       if (typeof parts === "string") return { stopReason: "error", errorMessage: `${model.provider}/${model.id}: ${parts}` };
       reply = parts.length === 1 ? await once(parts[0], signal) : await batched(once, parts, signal);
+      if (reply.stopReason === "stop") proven = Math.max(proven, ...parts.map(estimate));
       if (reply.stopReason !== "error") return reply;
       const message = reply.errorMessage ?? "";
       // Another call may have learned the same cap meanwhile, so compare against what was sent.
       const learned = Number(QUESTION_LIMIT.exec(message)?.[1]);
       const sent = Math.max(...parts.map((part) => Object.keys(part.questions).length));
       if (learned > 0 && learned < sent) limit = Math.min(limit, learned);
-      else if (INVALID_REQUEST.test(message)) budget = Math.min(budget, Math.floor(Math.max(...parts.map(estimate)) * SHRINK));
-      else return reply;
+      else if (INVALID_REQUEST.test(message) && Math.max(...parts.map(estimate)) > proven) {
+        // Only a size the model has never accepted can be the problem; otherwise surface the error.
+        budget = Math.max(proven, Math.min(budget, Math.floor(Math.max(...parts.map(estimate)) * SHRINK)));
+      } else return reply;
     }
     return reply;
   };
