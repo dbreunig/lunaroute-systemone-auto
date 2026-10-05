@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { type Classify, decide } from "../src/monitor.ts";
 import { DEFAULT_MODEL, parseModel } from "../src/settings.ts";
+import { KNOWN_CAPS } from "../src/program.generated.ts";
 import { makeClassifier } from "../src/transport.ts";
 
 const { values, positionals } = parseArgs({
@@ -37,7 +38,7 @@ const ref = values.model as string;
 const parsed = parseModel(ref);
 const model = parsed && registry.findOfType("classifier", parsed.provider, parsed.id);
 if (!model) throw new Error(`${ref} is not a classifier in Pi's catalog`);
-const transport = makeClassifier(registry, model);
+const transport = makeClassifier(registry, model, fetch, KNOWN_CAPS[ref]);
 
 const golden = JSON.parse(readFileSync(new URL("../test/golden.json", import.meta.url), "utf8"));
 const cases = golden.cases.filter(

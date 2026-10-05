@@ -16,7 +16,7 @@ function harness(opts: { hasUI?: boolean; mode?: string; answers?: (q: string[])
   const handlers: Record<string, Function> = {};
   const commands: Record<string, any> = {};
   const flags: Record<string, unknown> = { "system-one-auto-mode": opts.mode ?? "ask", "system-one-auto-model": "" };
-  const log = { classify: 0, branch: 0, prompts: [] as string[], notes: [] as string[], status: "" };
+  const log = { classify: 0, branch: 0, asked: [] as string[], batchSizes: [] as number[], prompts: [] as string[], notes: [] as string[], status: "" };
   const pi = {
     on: (name: string, fn: Function) => (handlers[name] = fn),
     registerFlag: () => {},
@@ -34,6 +34,8 @@ function harness(opts: { hasUI?: boolean; mode?: string; answers?: (q: string[])
       classify: async (_m: unknown, request: any) => {
         log.classify++;
         const names = Object.keys(request.questions);
+        log.asked.push(...names);
+        log.batchSizes.push(names.length);
         const probs = opts.answers?.(names) ?? {};
         return { stopReason: "stop", answers: Object.fromEntries(names.map((n) => [n, { type: "bool", probability: probs[n] ?? 0.02 }])) };
       },
@@ -60,10 +62,13 @@ test("read-only calls finish in code: no session walk, no classifier", async () 
   assert.match(h.log.status, /system-one: allow · lunaroute\/djev/);
 });
 
-test("judged calls walk the session once and call the classifier once", async () => {
+test("judged calls walk the session once and ask every question once, in batches djev accepts", async () => {
   const h = harness();
   assert.equal(await h.toolCall("bash", { command: "npm run build" }), undefined);
-  assert.deepEqual([h.log.branch, h.log.classify], [1, 1]);
+  assert.equal(h.log.branch, 1);
+  assert.equal(h.log.asked.length, 127);
+  assert.equal(new Set(h.log.asked).size, 127);
+  assert.ok(h.log.batchSizes.every((n) => n <= 32) && h.log.batchSizes.length === h.log.classify);
 });
 
 test("HARD blocks never prompt", async () => {
