@@ -23,6 +23,7 @@ export interface PiRequest {
 export type Classify = (request: PiRequest, signal: AbortSignal) => Promise<ClassifierReply>;
 
 export const CANCELLED = "cancelled";
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
 export interface Call {
   action: Action;
@@ -51,6 +52,10 @@ export async function decide(call: Call): Promise<Verdict> {
     return verdict("ask", "error", [], `${call.model} is not a classifier in Pi's model catalog. Install and sign in to its provider, or pick another with /system-one-auto model.`);
   }
 
+  // AbortSignal.timeout throws on these; a bad setting must still fail closed with a readable reason.
+  if (!Number.isInteger(call.timeoutMs) || call.timeoutMs <= 0 || call.timeoutMs > MAX_TIMEOUT_MS) {
+    return verdict("ask", "error", [], `SYSTEM_ONE_AUTO_TIMEOUT_MS must be a positive whole number of milliseconds (got ${call.timeoutMs}).`);
+  }
   const { transcript, environment, action } = call.context();
   const request = toPiRequest(buildRequest(buildInputs(transcript, action, environment)));
   const timeout = AbortSignal.timeout(call.timeoutMs);

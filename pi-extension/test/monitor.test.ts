@@ -84,3 +84,11 @@ test("a user cancel blocks quietly", async () => {
   assert.equal(v.decision, "block");
   assert.equal(v.reason, CANCELLED);
 });
+
+test("an invalid timeout asks instead of throwing", async () => {
+  for (const timeoutMs of [Number.NaN, -5, Number.POSITIVE_INFINITY, 1e20]) {
+    const v = await decide(call(modelCase, async () => reply(modelCase.answers), { timeoutMs }).built);
+    assert.equal(v.decision, "ask", String(timeoutMs));
+    assert.match(v.reason, /SYSTEM_ONE_AUTO_TIMEOUT_MS/);
+  }
+});

@@ -1,7 +1,7 @@
 /** Code checks that decide without a model: a port of jev_auto/state.py's prechecks. */
 
 import { homedir } from "node:os";
-import { posix } from "node:path";
+import nodePath from "node:path";
 import { PATTERNS, type Pattern, READ_ONLY, READ_ONLY_GIT } from "./program.generated.ts";
 import { verdict, type Verdict } from "./verdict.ts";
 
@@ -59,37 +59,33 @@ export function hasEncodedExec(command: string): boolean {
   return ENCODED_EXEC.test(command);
 }
 
-function expandUser(path: string): string {
-  if (!path.startsWith("~")) return path;
+type PathApi = typeof nodePath;
+
+function expandUser(path: string, p: PathApi): string {
+  const m = /^~([^/\\]*)(.*)$/.exec(path);
+  if (!m) return path;
   const home = process.env.HOME ?? homedir();
-  const slash = path.indexOf("/");
-  const user = slash === -1 ? path.slice(1) : path.slice(1, slash);
-  const rest = slash === -1 ? "" : path.slice(slash);
   // Python resolves ~name from the password database; a sibling of HOME is the usual answer, and
   // treating any ~name as outside the project is the safe side either way.
-  return (user ? posix.join(posix.dirname(home), user) : home) + rest;
+  return (m[1] ? p.join(p.dirname(home), m[1]) : home) + m[2];
 }
 
-function normalize(path: string): string {
-  const n = posix.normalize(path);
-  return n.length > 1 ? n.replace(/\/+$/, "") : n;
-}
-
-export function inside(path: string, cwd: string): boolean {
+/** Whether path resolves inside cwd, by the platform's path rules (Python's os.path does the same). */
+export function inside(path: string, cwd: string, p: PathApi = nodePath): boolean {
   if (!path) return false;
-  const expanded = expandUser(path);
-  const full = normalize(posix.isAbsolute(expanded) ? expanded : posix.join(cwd, expanded));
-  return full === cwd || full.startsWith(`${cwd.replace(/\/+$/, "")}/`);
+  const root = p.resolve(cwd);
+  const rel = p.relative(root, p.resolve(root, expandUser(path, p)));
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${p.sep}`) && !p.isAbsolute(rel));
 }
 
 /** True when the action is plainly read-only inside the project and needs no judgment. */
-export function isFastPath(action: Action, cwd: string): boolean {
+export function isFastPath(action: Action, cwd: string, p: PathApi = nodePath): boolean {
   const args = action.input ?? {};
   if (action.tool === "read") {
     const path = asString(args.path);
     // Pi trims, strips a leading @, and converts file:// URLs before reading; those paths can point anywhere.
     if (path !== path.trim() || path.startsWith("@") || path.startsWith("file:")) return false;
-    return inside(path, cwd) && !SENSITIVE_PATH.test(path);
+    return inside(path, cwd, p) && !SENSITIVE_PATH.test(path);
   }
   if (action.tool !== "bash") return false;
   const command = asString(args.command);
@@ -105,7 +101,8 @@ export function isFastPath(action: Action, cwd: string): boolean {
     } else if (!READ_ONLY_SET.has(words[0])) return false;
     // Absolute or home paths outside the project are not routine reads.
     for (const word of words.slice(1)) {
-      if ((word.startsWith("/") || word.startsWith("~")) && !inside(word, cwd) && word !== "/dev/null") return false;
+      const absolute = word.startsWith("/") || word.startsWith("~") || p.isAbsolute(word);
+      if (absolute && !inside(word, cwd, p) && word !== "/dev/null") return false;
     }
   }
   return true;

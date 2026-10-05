@@ -66,3 +66,16 @@ test("read paths that Pi rewrites go to the model", () => {
     assert.ok(!isFastPath({ tool: "read", input: { path } }, CWD), path);
   }
 });
+
+// The fast path resolves paths with the platform's rules; Windows absolute paths are not relative.
+test("Windows paths outside the project never take the fast path", async () => {
+  const { win32 } = await import("node:path");
+  const cwd = "C:\\work\\repo";
+  assert.ok(isFastPath({ tool: "read", input: { path: "src\\app.ts" } }, cwd, win32));
+  assert.ok(isFastPath({ tool: "read", input: { path: "C:\\work\\repo\\README.md" } }, cwd, win32));
+  assert.ok(!isFastPath({ tool: "read", input: { path: "C:\\Users\\me\\Documents\\private.txt" } }, cwd, win32));
+  assert.ok(!isFastPath({ tool: "read", input: { path: "D:\\work\\repo\\x.txt" } }, cwd, win32));
+  assert.ok(!isFastPath({ tool: "read", input: { path: "C:\\work\\repo-other\\x.txt" } }, cwd, win32));
+  assert.ok(!isFastPath({ tool: "read", input: { path: "..\\other\\x.txt" } }, cwd, win32));
+  assert.ok(!isFastPath(bash("cat C:\\Users\\me\\notes.txt"), cwd, win32));
+});
