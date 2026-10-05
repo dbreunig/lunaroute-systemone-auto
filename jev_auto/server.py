@@ -18,11 +18,10 @@ from dspy.experimental import TypeSafe
 
 from jev_auto.program import AutoModeMonitor
 from jev_auto.rules import RULES_BY_KEY
-from jev_auto.state import default_environment
+from jev_auto.state import DESTROYS_WORK, default_environment
 
 HOME = Path(__file__).resolve().parent.parent
 TUNED = HOME / "bench" / "results" / "tuned_monitor.json"
-DESTROYS_WORK = re.compile(r"git\s+(reset\s+--hard|checkout\s+(--\s+)?\.|clean\s+-\w*f|restore\s+\.|stash\s+(drop|clear))|\brm\s+-\w*r")
 
 
 def git(cwd, *args):
