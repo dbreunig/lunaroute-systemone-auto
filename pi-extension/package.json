@@ -1,0 +1,10 @@
+{
+  "name": "pi-jev-auto",
+  "version": "0.1.0",
+  "description": "Auto-mode monitor for Pi: every tool call is judged by a DSPy program over TypeSafe's Jev",
+  "keywords": ["pi-package"],
+  "type": "module",
+  "pi": {
+    "extensions": ["./index.ts"]
+  }
+}

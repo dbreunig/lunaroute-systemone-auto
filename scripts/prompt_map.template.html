@@ -1,0 +1,352 @@
+<title>Auto-Mode Prompt Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the source prompt runs down the left as a document; each block's rows carry the
+   questions and code rules it became in a right-hand column, aligned row by row. */
+:root {
+  --bg: #e9edf1;
+  --paper: #fbfcfd;
+  --ink: #18222d;
+  --muted: #5a6775;
+  --line: #d3dae2;
+  --decision: #0e6b75;
+  --intent: #6447b0;
+  --code: #9a5c06;
+  --folded: #46702f;
+  --dropped: #858c94;
+  --gap: #b93b27;
+  --font-doc: "Literata", Georgia, "Times New Roman", serif;
+  --font-ui: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --tint: 11%;
+  --code-bg: #f1f4f7;
+  --str: #2f6b3a;
+  --kw: #6447b0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161c; --paper: #171e26; --ink: #dde5ed; --muted: #92a0ae; --line: #2a3541;
+    --decision: #4cbcc6; --intent: #a58bef; --code: #dda047; --folded: #8dbd6b; --dropped: #7c848d; --gap: #ee7a63;
+    --tint: 16%; --code-bg: #10161d; --str: #9fd08a; --kw: #b9a3f5; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161c; --paper: #171e26; --ink: #dde5ed; --muted: #92a0ae; --line: #2a3541;
+  --decision: #4cbcc6; --intent: #a58bef; --code: #dda047; --folded: #8dbd6b; --dropped: #7c848d; --gap: #ee7a63;
+  --tint: 16%; --code-bg: #10161d; --str: #9fd08a; --kw: #b9a3f5; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-inline: 24px; padding-block: 32px 64px; }
+
+header.intro { display: grid; gap: 14px; max-width: 72ch; }
+.eyebrow { font: 600 11px/1 var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+h1 { font: 600 clamp(28px, 4vw, 40px)/1.1 var(--font-doc); margin: 0; text-wrap: balance; letter-spacing: -.01em; }
+.intro p { margin: 0; color: var(--muted); font-size: 15px; }
+.intro code, .card code, .src code { font-family: var(--font-mono); font-size: .88em; }
+
+.stats { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-block: 26px 0; padding-block: 16px; border-block: 1px solid var(--line); }
+.stat { display: grid; gap: 2px; }
+.stat b { font: 600 22px/1 var(--font-doc); font-variant-numeric: tabular-nums; }
+.stat span { font-size: 12px; color: var(--muted); }
+
+.toolbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; border-bottom: 1px solid var(--line); }
+.toolbar .label { font-size: 12px; color: var(--muted); margin-right: 4px; }
+.kind-toggle { --k: var(--muted); display: inline-flex; align-items: center; gap: 7px; font: 500 12.5px/1 var(--font-ui); color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 7px 12px 7px 9px; cursor: pointer; }
+.kind-toggle::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--k); }
+.kind-toggle[aria-pressed="false"] { opacity: .45; }
+.kind-toggle[aria-pressed="false"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px var(--k); }
+.kind-toggle .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+button:focus-visible, .src:focus-visible { outline: 2px solid var(--decision); outline-offset: 2px; }
+
+.colheads { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 32px; margin-block: 22px 8px; }
+.colheads div { font: 600 11px/1 var(--font-ui); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+
+.doc { display: grid; }
+.row { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+.row.blank { height: 10px; }
+.row.heading { margin-top: 26px; }
+
+.src { --k: transparent; position: relative; background: var(--paper); padding: 6px 18px 6px 52px; font: 400 14.5px/1.62 var(--font-doc); border-left: 3px solid var(--k); background-image: linear-gradient(color-mix(in srgb, var(--k) var(--tint), transparent), color-mix(in srgb, var(--k) var(--tint), transparent)); min-width: 0; overflow-wrap: anywhere; }
+.src[data-kind] { cursor: pointer; }
+.src .ln { position: absolute; left: 12px; top: 8px; font: 400 10.5px/1.6 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.src.h2 { font: 600 19px/1.3 var(--font-doc); padding-block: 14px 8px; }
+.src.li { padding-left: 70px; }
+.src.li::after { content: "–"; position: absolute; left: 54px; top: 6px; color: var(--muted); }
+.src.li2 { padding-left: 88px; }
+.src.li2::after { left: 72px; }
+.src.tag { font: 400 12px/1.6 var(--font-mono); color: var(--muted); }
+.src.lit { box-shadow: 0 0 0 2px var(--k) inset; }
+.src .dots { display: inline-flex; gap: 3px; margin-left: 8px; vertical-align: middle; }
+.src .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--d); display: inline-block; }
+
+.notes { display: grid; gap: 10px; padding-block: 4px; min-width: 0; }
+.card { --k: var(--muted); position: relative; background: var(--paper); border: 1px solid var(--line); border-left: 3px solid var(--k); border-radius: 0 8px 8px 0; padding: 12px 14px; display: grid; gap: 8px; min-width: 0; }
+.card::before { content: ""; position: absolute; left: -35px; top: 18px; width: 32px; border-top: 1.5px dashed color-mix(in srgb, var(--k) 70%, transparent); }
+.card.lit { box-shadow: 0 0 0 2px var(--k); }
+.card .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.card h3 { margin: 0; font: 600 14.5px/1.3 var(--font-ui); }
+.badge { font: 600 10px/1 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; color: var(--k); background: color-mix(in srgb, var(--k) 14%, transparent); }
+.badge.hard { color: var(--gap); background: color-mix(in srgb, var(--gap) 14%, transparent); }
+.field { font: 400 11px/1 var(--font-mono); color: var(--muted); }
+.card p { margin: 0; overflow-wrap: anywhere; }
+.card .q { font-size: 13.5px; }
+.sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.side { display: grid; gap: 4px; align-content: start; font-size: 12.5px; min-width: 0; }
+.side .h { font: 600 10.5px/1 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.side ul { margin: 0; padding-left: 14px; color: var(--muted); }
+.side li { font-family: var(--font-mono); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.consent { font-size: 12.5px; padding: 8px 10px; border-radius: 6px; background: color-mix(in srgb, var(--intent) 9%, transparent); }
+.consent b { color: var(--intent); font-weight: 600; }
+.foot { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 400 11px/1.4 var(--font-mono); color: var(--muted); }
+.foot .from button { font: inherit; color: inherit; background: none; border: 0; padding: 0 2px; cursor: pointer; text-decoration: underline dotted; }
+.card.dropped h3 { text-decoration: line-through; text-decoration-color: var(--dropped); color: var(--muted); }
+.card.gap { border-style: dashed; border-left-style: solid; }
+.into { display: grid; gap: 6px; font-size: 12.5px; }
+.into div { color: var(--muted); }
+.into b { color: var(--ink); font-weight: 600; }
+
+.chip { --k: var(--muted); justify-self: start; display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1.2 var(--font-ui); color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-left: 3px solid var(--k); border-radius: 0 6px 6px 0; padding: 6px 10px; cursor: pointer; text-align: left; max-width: 100%; }
+.chip .arrow { color: var(--k); }
+.chip.lit { box-shadow: 0 0 0 2px var(--k); }
+
+[data-kind="decision"], .k-decision { --k: var(--decision); }
+[data-kind="intent"], .k-intent { --k: var(--intent); }
+[data-kind="code"], .k-code { --k: var(--code); }
+[data-kind="folded"], .k-folded { --k: var(--folded); }
+[data-kind="dropped"], .k-dropped { --k: var(--dropped); }
+[data-kind="gap"], .k-gap { --k: var(--gap); }
+
+details.x { border-top: 1px solid var(--line); padding-top: 6px; min-width: 0; }
+details.x + details.x { border-top: 0; padding-top: 0; }
+details.x summary { cursor: pointer; font: 600 10.5px/1.6 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 6px; }
+details.x summary::-webkit-details-marker { display: none; }
+details.x summary::before { content: "▸"; font-size: 10px; transition: transform .15s ease; }
+details.x[open] summary::before { transform: rotate(90deg); }
+details.x summary .sub { text-transform: none; letter-spacing: 0; font-weight: 400; font-family: var(--font-mono); }
+pre.code { margin: 6px 0 2px; padding: 10px 12px; background: var(--code-bg); border-radius: 6px; font: 400 11.5px/1.55 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; overflow-x: auto; max-height: 420px; overflow-y: auto; }
+pre.code .s { color: var(--str); }
+pre.code .k { color: var(--kw); font-weight: 500; }
+pre.code .c { color: var(--muted); font-style: italic; }
+.sig { margin-top: 18px; max-width: 100%; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.sig details.x { border-top: 0; padding-top: 0; }
+.sig details.x + details.x { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+.sig pre.code { max-height: 560px; }
+
+@media (max-width: 860px) {
+  .wrap { padding-inline: 16px; }
+  .row, .colheads { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .colheads div:last-child { display: none; }
+  .notes { padding-left: 18px; }
+  .notes:empty { display: none; }
+  .card::before { display: none; }
+  .sides { grid-template-columns: 1fr; }
+  .src { padding-left: 44px; }
+  .src.li { padding-left: 58px; } .src.li::after { left: 44px; }
+  .src.li2 { padding-left: 70px; } .src.li2::after { left: 56px; }
+}
+@media (prefers-reduced-motion: no-preference) { .card, .chip, .src { transition: box-shadow .15s ease; } }
+</style>
+
+<div class="wrap">
+  <header class="intro">
+    <div class="eyebrow">jev-auto · prompt decomposition</div>
+    <h1>Auto-Mode Prompt Map</h1>
+    <p>The left column is <code>auto_prompt.md</code>, line by line. The right column shows what each block became: a Jev question, a piece of code, an exception folded into a rule's criteria, or nothing (dropped or not modeled). Hover or tap a card to light up every line that feeds it.</p>
+  </header>
+  <div class="sig" id="sig"></div>
+  <div class="stats" id="stats"></div>
+  <div class="toolbar" id="toolbar"><span class="label">Show</span></div>
+  <div class="colheads"><div>auto_prompt.md</div><div>Became</div></div>
+  <div class="doc" id="doc"></div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const KINDS = [
+  ["decision", "Decision rule (Jev Noul)"],
+  ["intent", "Intent question (Jev Noul)"],
+  ["code", "Code"],
+  ["folded", "Folded exception"],
+  ["dropped", "Dropped for Pi"],
+  ["gap", "Not modeled"],
+];
+const T = DATA.targets;
+const visible = new Set(KINDS.map(k => k[0]));
+const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const inline = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+// Minimal coloring for Python and JSON: strings, comments, and a few keywords.
+const TOKEN = /("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|(#[^\n]*)|\b(Noul|True|False|None|dspy|def|class|return|if|for|in|not|and|or|const|let|function|true|false|null)\b/g;
+function hl(code) {
+  let out = "", last = 0, m;
+  TOKEN.lastIndex = 0;
+  while ((m = TOKEN.exec(code))) {
+    out += esc(code.slice(last, m.index));
+    const cls = m[1] ? "s" : m[2] ? "c" : "k";
+    out += `<span class="${cls}">${esc(m[0])}</span>`;
+    last = TOKEN.lastIndex;
+  }
+  return out + esc(code.slice(last));
+}
+const block = (label, sub, code) => code ? `<details class="x"><summary>${label}${sub ? ` <span class="sub">${esc(sub)}</span>` : ""}</summary><pre class="code">${hl(code)}</pre></details>` : "";
+function expanders(t) {
+  if (t.kind === "code") return block("Source", t.where, t.source);
+  if (t.kind === "folded") return block("Criteria", "false side", t.decl);
+  return block("DSPy declaration", "Noul output field", t.decl);
+}
+
+function signature() {
+  const g = DATA.signature;
+  document.getElementById("sig").innerHTML =
+    block("DSPy signature", "inputs, instructions, Predict", g.decl);
+}
+
+// Which lines feed each target, for the "from lines" footers and highlighting.
+const feeds = {};
+DATA.lines.forEach(l => l.targets.forEach(t => (feeds[t] ||= []).push(l.n)));
+
+function stats() {
+  const s = DATA.stats;
+  const items = [
+    [s.rules, `decision rules (${s.hard} hard, ${s.soft} soft)`],
+    [s.questions, "Jev questions in one request"],
+    [s.code, "code rules"],
+    [s.folded, "exceptions folded into criteria"],
+    [s.dropped, "dropped for Pi"],
+    [s.gaps, "not modeled"],
+    [`${s.mapped_lines}/${s.content_lines}`, "prompt lines mapped"],
+  ];
+  document.getElementById("stats").innerHTML = items.map(([b, t]) => `<div class="stat"><b>${b}</b><span>${t}</span></div>`).join("");
+  const counts = {};
+  Object.values(T).forEach(t => (counts[t.kind] = (counts[t.kind] || 0) + 1));
+  const bar = document.getElementById("toolbar");
+  KINDS.forEach(([k, label]) => {
+    const b = document.createElement("button");
+    b.className = `kind-toggle k-${k}`;
+    b.setAttribute("aria-pressed", "true");
+    b.innerHTML = `${label} <span class="n">${counts[k] || 0}</span>`;
+    b.onclick = () => {
+      visible.has(k) ? visible.delete(k) : visible.add(k);
+      b.setAttribute("aria-pressed", visible.has(k));
+      applyFilter();
+    };
+    bar.appendChild(b);
+  });
+}
+
+function fromLines(id) {
+  const ns = feeds[id] || [];
+  return `<span class="from">from line${ns.length > 1 ? "s" : ""} ${ns.map(n => `<button data-jump="${n}">${n}</button>`).join(" ")}</span>`;
+}
+
+function card(t) {
+  const where = t.where ? `<span>${esc(t.where)}</span>` : "";
+  const foot = `<div class="foot">${where}${fromLines(t.id)}</div>`;
+  if (t.kind === "decision") {
+    const ex = (h, what, list) => `<div class="side"><span class="h">${h}</span><span>${esc(what)}</span>${list.length ? `<ul>${list.map(e => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}</div>`;
+    const consent = t.tier === "hard"
+      ? `<div class="consent"><b>No consent path.</b> A HARD match blocks even when the user asks for it.</div>`
+      : t.adversarial
+        ? `<div class="consent"><b>Clears only</b> when the user confirms this flag is a false positive.</div>`
+        : `<div class="consent"><b>Clears when the user names</b> ${esc(t.must_name)}.</div>`;
+    return `<article class="card" data-kind="decision" data-id="${t.id}">
+      <div class="top"><span class="badge ${t.tier === "hard" ? "hard" : ""}">${t.tier}</span>${t.adversarial ? `<span class="badge">adversarial</span>` : ""}<h3>${esc(t.title)}</h3><span class="field">${t.field}</span></div>
+      <p class="q">${inline(t.body)}</p>
+      <div class="sides">${ex("Matches", t.true, t.true_examples)}${ex("Doesn't match", t.false, t.false_examples)}</div>
+      ${consent}${expanders(t)}${foot}</article>`;
+  }
+  if (t.kind === "folded") {
+    return `<article class="card" data-kind="folded" data-id="${t.id}">
+      <div class="top"><span class="badge">allow exception</span><h3>${esc(t.title)}</h3></div>
+      <div class="into">${t.into.map(i => `<div><b>${esc(i.rule)}</b> — doesn't match: ${esc(i.false)}</div>`).join("")}</div>${expanders(t)}${foot}</article>`;
+  }
+  const badge = { intent: "jev question", code: "code", dropped: "dropped", gap: "not modeled" }[t.kind];
+  return `<article class="card ${t.kind}" data-kind="${t.kind}" data-id="${t.id}">
+    <div class="top"><span class="badge">${badge}</span><h3>${esc(t.title)}</h3></div>
+    <p>${inline(t.body)}</p>${expanders(t)}${foot}</article>`;
+}
+
+function chip(t) {
+  return `<button class="chip" data-kind="${t.kind}" data-id="${t.id}"><span class="arrow">↳</span>${esc(t.title)}</button>`;
+}
+
+function render() {
+  const doc = document.getElementById("doc");
+  const seen = new Set();
+  const html = [];
+  for (const l of DATA.lines) {
+    const raw = l.text;
+    if (!raw.trim()) { html.push(`<div class="row blank"></div>`); continue; }
+    let cls = "", text = raw;
+    if (/^#{1,3} /.test(raw)) { cls = "h2"; text = raw.replace(/^#+ /, ""); }
+    else if (/^ {2,}- /.test(raw)) { cls = "li2"; text = raw.replace(/^ +- /, ""); }
+    else if (/^- /.test(raw)) { cls = "li"; text = raw.slice(2); }
+    else if (/^<\/?[a-z_]+>$/.test(raw.trim())) { cls = "tag"; }
+    const notes = l.targets.map(id => {
+      const t = T[id];
+      if (seen.has(id)) return chip(t);
+      seen.add(id);
+      return card(t);
+    }).join("");
+    html.push(`<div class="row${cls === "h2" ? " heading" : ""}" id="L${l.n}" data-targets="${l.targets.join(" ")}">
+      <div class="src ${cls}" tabindex="${l.targets.length ? 0 : -1}"><span class="ln">${l.n}</span>${cls === "tag" ? esc(text) : inline(text)}<span class="dots"></span></div>
+      <div class="notes">${notes}</div></div>`);
+  }
+  doc.innerHTML = html.join("");
+  applyFilter();
+}
+
+// Tint each prompt block by its first visible target; show dots for the other kinds it also feeds.
+function applyFilter() {
+  document.querySelectorAll(".row[data-targets]").forEach(row => {
+    const ids = row.dataset.targets ? row.dataset.targets.split(" ") : [];
+    const kinds = [...new Set(ids.map(id => T[id].kind).filter(k => visible.has(k)))];
+    const src = row.querySelector(".src");
+    if (kinds.length) src.dataset.kind = kinds[0]; else delete src.dataset.kind;
+    src.querySelector(".dots").innerHTML = kinds.slice(1).map(k => `<i style="--d: var(--${k})"></i>`).join("");
+    row.querySelectorAll(".card, .chip").forEach(el => (el.hidden = !visible.has(el.dataset.kind)));
+  });
+}
+
+let lit = null;
+function light(id) {
+  if (lit === id) return;
+  document.querySelectorAll(".lit").forEach(el => el.classList.remove("lit"));
+  lit = id;
+  if (!id) return;
+  (feeds[id] || []).forEach(n => document.querySelector(`#L${n} .src`)?.classList.add("lit"));
+  document.querySelectorAll(`[data-id="${CSS.escape(id)}"]`).forEach(el => el.classList.add("lit"));
+}
+
+document.addEventListener("mouseover", e => {
+  const el = e.target.closest(".card, .chip");
+  if (el) light(el.dataset.id);
+});
+document.addEventListener("click", e => {
+  if (e.target.closest("details.x")) return;
+  const jump = e.target.closest("[data-jump]");
+  if (jump) { document.getElementById(`L${jump.dataset.jump}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+  const chipEl = e.target.closest(".chip");
+  if (chipEl) {
+    const first = document.querySelector(`.card[data-id="${CSS.escape(chipEl.dataset.id)}"]`);
+    light(chipEl.dataset.id);
+    first?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+  const el = e.target.closest(".card");
+  if (el) { light(el.dataset.id); return; }
+  const src = e.target.closest(".src[data-kind]");
+  if (src) {
+    const ids = src.parentElement.dataset.targets.split(" ").filter(id => visible.has(T[id].kind));
+    if (ids.length) light(ids[0]);
+  }
+});
+
+signature();
+stats();
+render();
+</script>
