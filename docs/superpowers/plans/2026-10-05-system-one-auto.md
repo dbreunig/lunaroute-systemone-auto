@@ -39,7 +39,7 @@ These are the five inputs most likely to bite a user that no golden case exercis
 1. Non-ASCII text (emoji, CJK) near the clip limits. Python counts code points, JavaScript counts UTF-16 units, so clipping must count code points (Task 3, `clip` test).
 2. Tool inputs with non-string values (numbers, lists such as `edits`, booleans, nested objects, `null`). Python renders them with `repr`, and the TypeScript must render identical text (Task 3, `pyRepr` test; Task 4, `compactAction` test).
 3. Tool inputs missing optional fields, such as `write` without `path`. These must serialize as `null`, never be dropped (Task 4, `compactAction` test).
-4. Paths that leave the project: absolute paths, `~/…`, `~otheruser/…`, `..` segments, trailing slashes. The fast path must not allow them (Task 3, `isFastPath` test).
+4. Paths that leave the project: absolute paths (including ones that climb out with `..`), `~/…`, `~otheruser/…`, and paths with trailing slashes. The fast path must not allow them (Task 3, `isFastPath` test). Bare relative paths such as `cat ../x` are not checked by the Python fast path either; reorder-only keeps that as is.
 5. Tool calls issued by another tool (`parentToolCallId`), whose id never appears in the transcript. The transcript must still be built (the whole branch), with no crash (Task 4, `branchToEntries` test).
 
 ---
@@ -619,6 +619,7 @@ test("fast path stays inside the project", () => {
   assert.ok(isFastPath(bash("ls src/ && git status"), CWD));
   assert.ok(isFastPath({ tool: "read", input: { path: "/work/repo/./src/../README.md" } }, CWD));
   assert.ok(!isFastPath(bash("cat /etc/passwd"), CWD));
+  assert.ok(!isFastPath(bash("cat /work/repo/../other/notes.txt"), CWD));
   assert.ok(!isFastPath(bash("cat ~/notes.txt"), CWD));
   assert.ok(!isFastPath(bash("cat ~bob/notes.txt"), CWD));
   assert.ok(!isFastPath({ tool: "read", input: { path: "/work/repo-other/x" } }, CWD));
