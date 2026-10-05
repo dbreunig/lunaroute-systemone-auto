@@ -19,6 +19,7 @@ import { branchToEntries, environmentFor, withMeta } from "./src/inputs.ts";
 import { CANCELLED, type Classify, decide } from "./src/monitor.ts";
 import type { Action } from "./src/prechecks.ts";
 import { DEFAULT_MODEL, modelWarnings, parseModel, readModel, settingsPath, writeModel } from "./src/settings.ts";
+import { makeClassifier } from "./src/transport.ts";
 
 const EXTENSION_DIR = dirname(fileURLToPath(import.meta.url));
 const TIMEOUT_MS = Number(process.env.SYSTEM_ONE_AUTO_TIMEOUT_MS ?? 10000);
@@ -28,6 +29,7 @@ export default function (pi: ExtensionAPI) {
   const outcomes = new Map<string, string>(); // our own decisions, so retries of rejected calls are visible
   let enabled = true;
   let chosen: string | undefined; // picked with /system-one-auto model in this session
+  const classifiers = new Map<string, Classify>();
 
   pi.registerFlag("system-one-auto-mode", {
     description: "System One auto-mode on soft blocks: 'ask' prompts you in the TUI, 'auto' returns the reason to the agent",
@@ -57,9 +59,11 @@ export default function (pi: ExtensionAPI) {
     if (!enabled) return undefined;
     const ref = activeModel();
     const model = resolve(ctx, ref);
-    const classifier: Classify | null = model
-      ? (request, signal) => ctx.modelRegistry.classify(model, request as never, { signal }) as never
-      : null;
+    let classifier: Classify | null = null;
+    if (model) {
+      classifier = classifiers.get(ref) ?? makeClassifier(ctx.modelRegistry as never, model);
+      classifiers.set(ref, classifier); // keeps a known-broken provider adapter from being retried every call
+    }
     const action: Action = { tool: event.toolName, input: (event.input ?? {}) as Record<string, unknown> };
     const v = await decide({
       action,

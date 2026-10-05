@@ -12,6 +12,7 @@ export interface ClassifierReply {
   stopReason: string;
   errorMessage?: string;
   answers?: Record<string, { type: string; probability?: number }>;
+  usage?: { input?: number };
 }
 
 export interface PiRequest {
