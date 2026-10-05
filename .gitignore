@@ -3,3 +3,4 @@
 __pycache__/
 bench/results/
 .pytest_cache/
+pi-extension/bench/results/

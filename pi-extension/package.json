@@ -1,9 +1,13 @@
 {
-  "name": "pi-jev-auto",
-  "version": "0.1.0",
-  "description": "Auto-mode monitor for Pi: every tool call is judged by a DSPy program over TypeSafe's Jev",
+  "name": "pi-system-one-auto",
+  "version": "0.2.0",
+  "description": "Auto-mode monitor for Pi: every tool call is judged by a System One classifier (default lunaroute/djev) running a decision program exported from DSPy",
   "keywords": ["pi-package"],
   "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "bench": "node bench/live.ts"
+  },
   "pi": {
     "extensions": ["./index.ts"]
   }

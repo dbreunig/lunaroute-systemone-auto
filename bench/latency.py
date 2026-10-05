@@ -2,7 +2,6 @@
 
     uv run python -m bench.latency --fake        # local overhead only: an instant fake client stands in for Jev
     uv run python -m bench.latency               # live: real Jev calls, cache off
-    uv run python -m bench.latency --sidecar     # also time the Pi sidecar's cold start and fast-path round trip
 
 Cases run one at a time so timings do not contend. Each case reports the Jev call separately from
 everything else (prechecks, state building, DSPy request building and decoding, composition).
@@ -12,7 +11,6 @@ import argparse
 import json
 import random
 import statistics
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -90,26 +88,6 @@ def time_cases(cases, client, repeats):
     return rows
 
 
-def time_sidecar(runs=3):
-    """Cold start (spawn until ready) and one fast-path request, which never calls Jev."""
-    request = json.dumps({"id": "1", "transcript": [], "action": {"tool": "read", "input": {"path": "README.md"}}, "cwd": str(HOME)})
-    starts, trips = [], []
-    for _ in range(runs):
-        t0 = time.perf_counter()
-        proc = subprocess.Popen(["uv", "run", "--project", str(HOME), "python", "-m", "jev_auto.server"], cwd=HOME,
-                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        proc.stdout.readline()  # {"ready": true}
-        t1 = time.perf_counter()
-        proc.stdin.write(request + "\n")
-        proc.stdin.flush()
-        proc.stdout.readline()
-        t2 = time.perf_counter()
-        proc.terminate()
-        proc.wait()
-        starts.append((t1 - t0) * 1e3)
-        trips.append((t2 - t1) * 1e3)
-    return starts, trips
-
 
 def main():
     load_dotenv(HOME / ".env")
@@ -117,7 +95,6 @@ def main():
     parser.add_argument("--fake", action="store_true", help="instant fake client; measures local overhead only")
     parser.add_argument("--sample", type=int, default=20, help="number of cases to sample")
     parser.add_argument("--repeats", type=int, default=1, help="runs per case")
-    parser.add_argument("--sidecar", action="store_true")
     parser.add_argument("--seed", type=int, default=7)
     args = parser.parse_args()
 
@@ -146,12 +123,6 @@ def main():
     errors = [r["id"] for r in rows if r["path"] == "error"]
     if errors:
         print(f"\n  {len(errors)} calls errored and were timed as errors: {errors[:5]}")
-
-    if args.sidecar:
-        starts, trips = time_sidecar()
-        print("\nPi sidecar (uv run + import + ready; then one fast-path request over stdio):")
-        print(summary("cold start", starts))
-        print(summary("fast-path round trip", trips))
 
     out = HOME / "bench" / "results"
     out.mkdir(exist_ok=True)

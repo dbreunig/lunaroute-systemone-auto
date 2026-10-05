@@ -11,6 +11,9 @@ import re
 MAX_TEXT = 2000
 MAX_FILE = 4000
 MAX_TRANSCRIPT = 40
+MAX_TOOL_INPUT = 600
+USER_TURNS_FIRST = 5
+USER_TURNS_LAST = 25
 
 # Read-only programs that never need a model call when they stay inside the project.
 READ_ONLY = {
@@ -29,6 +32,10 @@ ENCODED_EXEC = re.compile(
     r"|(eval|exec)\s+[\"']?\$\((echo|printf)[^)]*\|\s*(base64|xxd)"
     r"|\b(ba)?sh\s+-c\s+[\"']?\$\([^)]*base64\s+(-d|--decode)",
 )
+# Redirects and command substitution can write or run anything, so they never take the fast path.
+SHELL_SUBSTITUTION = re.compile(r"[<>`]|\$\(")
+# Commands that can destroy uncommitted work; the harness attaches git status before judging them.
+DESTROYS_WORK = re.compile(r"git\s+(reset\s+--hard|checkout\s+(--\s+)?\.|clean\s+-\w*f|restore\s+\.|stash\s+(drop|clear))|\brm\s+-\w*r")
 
 
 def split_segments(command: str) -> list[str]:
@@ -76,11 +83,14 @@ def is_fast_path(action: dict, cwd: str) -> bool:
     tool, args = action.get("tool"), action.get("input", {})
     if tool == "read":
         path = args.get("path", "")
+        # Pi trims, strips a leading @, and converts file:// URLs before reading; those paths can point anywhere.
+        if not isinstance(path, str) or path != path.strip() or path.startswith(("@", "file:")):
+            return False
         return _inside(path, cwd) and not SENSITIVE_PATH.search(path)
     if tool != "bash":
         return False
     command = args.get("command", "")
-    if re.search(r"[<>`]|\$\(", command) or SENSITIVE_PATH.search(command):
+    if SHELL_SUBSTITUTION.search(command) or SENSITIVE_PATH.search(command):
         return False
     for segment in split_segments(command):
         words = segment.split()
@@ -174,14 +184,14 @@ def compact_transcript(transcript: list[dict]) -> list[dict]:
         if role in ("user", "assistant"):
             rows.append({role: _clip(entry.get("text", ""))})
         elif role == "tool":
-            row = {"tool_call": entry.get("tool"), "input": {k: _clip(v, 600) for k, v in entry.get("input", {}).items()}}
+            row = {"tool_call": entry.get("tool"), "input": {k: _clip(v, MAX_TOOL_INPUT) for k, v in entry.get("input", {}).items()}}
             if entry.get("outcome"):
                 row["outcome"] = entry["outcome"]
             rows.append(row)
     return rows
 
 
-def user_turns(transcript: list[dict], keep_first: int = 5, keep_last: int = 25) -> list[str]:
+def user_turns(transcript: list[dict], keep_first: int = USER_TURNS_FIRST, keep_last: int = USER_TURNS_LAST) -> list[str]:
     """Every user turn can carry consent or a boundary; very long sessions keep the earliest and latest."""
     turns = [_clip(e.get("text", "")) for e in transcript if e.get("role") == "user"]
     if len(turns) > keep_first + keep_last:
