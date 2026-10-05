@@ -111,3 +111,69 @@ test("one failed batch fails the whole call", async () => {
   assert.equal(reply.stopReason, "error");
   assert.match(reply.errorMessage as string, /overloaded/);
 });
+
+const INVALID = { stopReason: "error", errorMessage: "System One 400: the System One backend rejected the request as invalid" };
+const tokens = (x: unknown) => Math.ceil(JSON.stringify(x).length / 4.4);
+
+test("packs questions under the token budget, keeping every question and the same state", async () => {
+  const parts: any[] = [];
+  const reg = {
+    classify: async (_m: unknown, req: any) => {
+      parts.push(req);
+      return { stopReason: "stop", answers: Object.fromEntries(Object.keys(req.questions).map((n) => [n, { type: "bool", probability: 0.2 }])) };
+    },
+    getApiKeyAndHeaders: async () => ({ ok: true }),
+  };
+  const reply = await makeClassifier(reg, { ...DJEV, contextWindow: 400 }, fakeFetch(500, {}).impl)(many, AbortSignal.timeout(1000));
+  assert.equal(reply.stopReason, "stop");
+  assert.ok(parts.length > 3);
+  assert.deepEqual(parts.flatMap((p) => Object.keys(p.questions)).sort(), Object.keys(many.questions).sort());
+  for (const p of parts) {
+    assert.equal(p.state, many.state);
+    assert.ok(Math.ceil(JSON.stringify(p).length / 3.8) <= 400, "estimated within budget");
+  }
+});
+
+test("learns a smaller token budget from invalid-request rejections and remembers it", async () => {
+  let rejected = 0;
+  const reg = {
+    classify: async (_m: unknown, req: any) => {
+      if (tokens(req) > 1000) return (rejected++, INVALID); // the backend's real limit, unknown to the client
+      return { stopReason: "stop", answers: Object.fromEntries(Object.keys(req.questions).map((n) => [n, { type: "bool", probability: 0.2 }])) };
+    },
+    getApiKeyAndHeaders: async () => ({ ok: true }),
+  };
+  const classify = makeClassifier(reg, { ...DJEV, contextWindow: 32768 }, fakeFetch(500, {}).impl);
+  const reply = await classify(many, AbortSignal.timeout(1000));
+  assert.equal(reply.stopReason, "stop");
+  assert.equal(Object.keys(reply.answers ?? {}).length, 70);
+  assert.ok(rejected > 0);
+  rejected = 0;
+  await classify(many, AbortSignal.timeout(1000));
+  assert.equal(rejected, 0, "remembers the budget");
+});
+
+test("a state too large for any question fails without guessing", async () => {
+  let calls = 0;
+  const reg = { classify: async () => (calls++, INVALID), getApiKeyAndHeaders: async () => ({ ok: true }) };
+  const big = { ...many, state: { ...many.state, inputs: { transcript: "x".repeat(20000) } } };
+  const reply = await makeClassifier(reg, { ...DJEV, contextWindow: 2000 }, fakeFetch(500, {}).impl)(big, AbortSignal.timeout(1000));
+  assert.equal(reply.stopReason, "error");
+  assert.match(reply.errorMessage as string, /no question fits/);
+  assert.equal(calls, 0);
+});
+
+test("concurrent calls each retry after another call has already learned the caps", async () => {
+  const reg = {
+    classify: async (_m: unknown, req: any) => {
+      await new Promise((r) => setTimeout(r, 5));
+      if (Object.keys(req.questions).length > 32) return LIMIT;
+      if (tokens(req) > 1000) return INVALID;
+      return { stopReason: "stop", answers: Object.fromEntries(Object.keys(req.questions).map((n) => [n, { type: "bool", probability: 0.2 }])) };
+    },
+    getApiKeyAndHeaders: async () => ({ ok: true }),
+  };
+  const classify = makeClassifier(reg, { ...DJEV, contextWindow: 32768 }, fakeFetch(500, {}).impl);
+  const replies = await Promise.all([1, 2, 3, 4].map(() => classify(many, AbortSignal.timeout(2000))));
+  assert.deepEqual(replies.map((r) => r.stopReason), ["stop", "stop", "stop", "stop"]);
+});

@@ -4,8 +4,10 @@
  * subpath Pi's loader cannot resolve), the request goes straight to the provider's /systemone
  * endpoint with the auth Pi resolves for that model. Delete the fallback once providers ship a fix.
  *
- * Some models cap questions per request (djev: 32). The cap is learned from the model's rejection
- * and the questions go out in parallel batches that share the same state.
+ * Models cap requests: djev takes at most 32 questions and about 4k input tokens, whatever its
+ * catalog context says. Both caps are learned from the model's rejections, and the questions go out
+ * in parallel batches that share the same state. A state too large for any question is an error,
+ * which the monitor turns into ask.
  */
 
 import type { ClassifierReply, Classify, PiRequest } from "./monitor.ts";
@@ -18,6 +20,7 @@ export interface ClassifierModel {
   id: string;
   api: string;
   baseUrl?: string;
+  contextWindow?: number;
 }
 
 /** The parts of Pi's ModelRegistry this module uses. */
@@ -29,10 +32,18 @@ export interface Registry {
 }
 
 const QUESTION_LIMIT = /max_questions of (\d+)/;
+const INVALID_REQUEST = /rejected the request as invalid/;
+// Characters per token for budgeting. djev measured 4.4 on this program; lower is safer.
+const CHARS_PER_TOKEN = 3.8;
+const SHRINK = 0.75;
+const MAX_ATTEMPTS = 8;
+
+const estimate = (value: unknown) => Math.ceil(JSON.stringify(value).length / CHARS_PER_TOKEN);
 
 export function makeClassifier(registry: Registry, model: ClassifierModel, fetchImpl: typeof fetch = fetch): Classify {
   let direct = false; // set once the provider's adapter is known to be broken
   let limit = Number.POSITIVE_INFINITY; // questions per request, learned from the model's rejection
+  let budget = model.contextWindow ?? Number.POSITIVE_INFINITY; // input tokens per request, learned the same way
 
   const once: Classify = async (request, signal) => {
     if (!direct) {
@@ -45,21 +56,49 @@ export function makeClassifier(registry: Registry, model: ClassifierModel, fetch
   };
 
   return async (request, signal) => {
-    if (Object.keys(request.questions).length <= limit) {
-      const reply = await once(request, signal);
-      const learned = Number(QUESTION_LIMIT.exec(reply.stopReason === "error" ? (reply.errorMessage ?? "") : "")?.[1]);
-      if (!(learned > 0)) return reply;
-      limit = learned;
+    let reply: ClassifierReply = { stopReason: "error", errorMessage: "no attempt made" };
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const parts = pack(request, limit, budget);
+      if (typeof parts === "string") return { stopReason: "error", errorMessage: `${model.provider}/${model.id}: ${parts}` };
+      reply = parts.length === 1 ? await once(parts[0], signal) : await batched(once, parts, signal);
+      if (reply.stopReason !== "error") return reply;
+      const message = reply.errorMessage ?? "";
+      // Another call may have learned the same cap meanwhile, so compare against what was sent.
+      const learned = Number(QUESTION_LIMIT.exec(message)?.[1]);
+      const sent = Math.max(...parts.map((part) => Object.keys(part.questions).length));
+      if (learned > 0 && learned < sent) limit = Math.min(limit, learned);
+      else if (INVALID_REQUEST.test(message)) budget = Math.min(budget, Math.floor(Math.max(...parts.map(estimate)) * SHRINK));
+      else return reply;
     }
-    return batched(once, request, signal, limit);
+    return reply;
   };
 }
 
-/** The same state with the questions split into parallel requests; any failed batch fails the call. */
-async function batched(once: Classify, request: PiRequest, signal: AbortSignal, size: number): Promise<ClassifierReply> {
-  const entries = Object.entries(request.questions);
+/** Split the questions into requests that share the state, each within the question limit and token budget. */
+function pack(request: PiRequest, limit: number, budget: number): PiRequest[] | string {
+  const base = estimate({ state: request.state, questions: {} });
   const parts: PiRequest[] = [];
-  for (let i = 0; i < entries.length; i += size) parts.push({ state: request.state, questions: Object.fromEntries(entries.slice(i, i + size)) });
+  let current: [string, unknown][] = [];
+  let size = base;
+  for (const entry of Object.entries(request.questions)) {
+    const cost = estimate({ [entry[0]]: entry[1] });
+    if (base + cost > budget) {
+      return `the state is about ${base} tokens and this model accepts about ${budget} per request, so no question fits`;
+    }
+    if (current.length && (current.length >= limit || size + cost > budget)) {
+      parts.push({ state: request.state, questions: Object.fromEntries(current) as PiRequest["questions"] });
+      current = [];
+      size = base;
+    }
+    current.push(entry);
+    size += cost;
+  }
+  if (current.length) parts.push({ state: request.state, questions: Object.fromEntries(current) as PiRequest["questions"] });
+  return parts;
+}
+
+/** Parallel requests; any failed batch fails the call. */
+async function batched(once: Classify, parts: PiRequest[], signal: AbortSignal): Promise<ClassifierReply> {
   const replies = await Promise.all(parts.map((part) => once(part, signal)));
   const failed = replies.find((r) => r.stopReason !== "stop");
   if (failed) return failed;

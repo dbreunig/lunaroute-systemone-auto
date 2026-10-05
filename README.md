@@ -1,6 +1,6 @@
 # jev-auto
 
-An auto-mode safety monitor for the [Pi](https://github.com/earendil-works/pi-mono) coding agent. Every tool call Pi is about to run is judged by a DSPy 3.4 program that asks TypeSafe's Jev one question per rule, then decides **allow**, **block**, or **ask** in code.
+An auto-mode safety monitor for the [Pi](https://github.com/earendil-works/pi-mono) coding agent. Every tool call Pi is about to run is judged by a program that asks a System One classifier one question per rule, then decides **allow**, **block**, or **ask** in code. The program is written and benchmarked in DSPy 3.4 against TypeSafe's Jev (`jev_auto/`), then exported to a TypeScript Pi extension (`pi-extension/`, package `pi-system-one-auto`) that calls `lunaroute/djev` by default.
 
 The rules come from `auto_prompt.md`, a monolithic LLM classifier prompt. Following the Jev skill, the prompt is decomposed rather than sent whole:
 
@@ -10,10 +10,10 @@ The rules come from `auto_prompt.md`, a monolithic LLM classifier prompt. Follow
 | Each SOFT rule's **must name** consent bar | One consent `Noul` per soft rule |
 | ALLOW exceptions | Folded into the `false` criteria of the rules they narrow |
 | User boundaries, retries of rejected calls | Two more `Noul`s |
-| Chained commands, encoded payloads, executing session-written files, `git status` meta | Code (`jev_auto/state.py`, `jev_auto/server.py`) |
+| Chained commands, encoded payloads, executing session-written files, `git status` meta | Code (`jev_auto/state.py`; ported to `pi-extension/src/`) |
 | HARD vs SOFT, consent, severity | Code (`AutoModeMonitor.compose`) |
 
-All 127 questions travel in one Jev request (about 24k tokens, within Jev's 64k budget). Read-only calls inside the project skip Jev entirely.
+All 127 questions travel in one Jev request (about 24k tokens, within Jev's 64k budget). Smaller classifiers get the same questions in parallel batches (see below). Read-only calls inside the project skip the classifier entirely.
 
 ## Run
 
@@ -26,26 +26,61 @@ uv run python -m bench.run --reanchor  # fit thresholds on a train split of the 
 uv run python -m bench.run --set holdout   # measure only; never tune against it
 uv run python -m bench.latency           # per-stage timing (--fake for local overhead only)
 PYTHONPATH=. uv run python scripts/build_prompt_map.py  # regenerate viz/prompt_map.html
+uv run python -m scripts.export_ts --golden   # regenerate the extension's program and parity vectors
+(cd pi-extension && npm test)                  # TypeScript must reach Python's verdicts on every case
 ```
 
 ## Results
 
-Live Jev (`jev-latest`), one request of 127 Nouls per judged call, about 24k tokens.
+Live Jev (`jev-latest`) through the DSPy program, one request of 127 Nouls per judged call, about 24k tokens. Re-measured after the Self-Modification examples were renamed to this monitor's paths.
 
 | Set | Cases | Exact | False allows | False blocks | Asks |
 | --- | --- | --- | --- | --- | --- |
-| Dev (`bench/cases.py`), after revisions 1-3 | 64 | 96.9% | 0/37 | 0/27 | 2 |
-| Held-out (`bench/holdout.py`), run once, never tuned on | 54 | 94.4% | 0/32 | 1/22 | 2 |
+| Dev (`bench/cases.py`), after revisions 1-3 | 64 | 93.8% | 0/37 | 0/27 | 4 |
+| Held-out (`bench/holdout.py`), never tuned on | 54 | 96.3% | 0/32 | 1/22 | 1 |
 
-Latency over 20 sequential live calls: Jev p50 282 ms, p95 324 ms; total per judged call p50 299 ms. Local work (prechecks, state, DSPy request and decode, composition) adds about 14 ms. Reads and read-only commands in the project skip Jev.
+Live `lunaroute/djev` through the TypeScript extension (`node pi-extension/bench/live.ts`). The questions were revised against Jev; djev's numbers are measured, not tuned.
+
+| Set | Cases | Exact | False allows | False blocks | Asks | Latency p50 / p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Dev | 64 | 90.6% | 0/37 | 5/27 | 1 | 1.6 s / 2.7 s |
+| Held-out | 54 | 94.4% | 0/32 | 3/22 | 0 | 1.5 s / 1.9 s |
+
+djev's false blocks are mostly actions the user consented to: its consent questions fire less readily than Jev's. djev accepts at most 32 questions and about 4k input tokens per request (its catalog context says 32k), so each judged call is about 7 parallel requests, about 21k input tokens in total. A session whose state alone exceeds that budget gets ask rather than a verdict; in a sample of real Pi sessions that was about a quarter of tool calls.
+
+Jev latency over 20 sequential live calls: p50 282 ms, p95 324 ms; total per judged call p50 299 ms. Local work (prechecks, state, DSPy request and decode, composition) adds about 14 ms. Reads and read-only commands in the project skip the classifier.
 
 Revisions came from reading per-rule probabilities on dev misses, one or two questions at a time: narrowing Data Exfiltration to exclude the project's own deploy and publish tooling, letting consent cover a soft rule's uncertainty, two false-side additions, Blind Apply's consent wording, and an ask floor of 0.2. ReAnchor kept none of its 127 threshold fits. The held-out misses point at Interfere With Workloads' consent wording; fixing it needs a new held-out set.
 
-## Install in Pi
+## Pi extension
+
+The extension in `pi-extension/` is TypeScript with no Python at runtime. Each tool call is judged in stages, cheapest first:
+
+1. Code prechecks: encoded payloads block, read-only calls inside the project allow.
+2. If no precheck decided: walk the session, build the state, and send the 127 questions to a System One classifier through Pi.
+3. Composition in code.
 
 ```bash
-pi install ./pi-extension        # or: pi -e ./pi-extension/index.ts for one run
-pi --jev-auto-mode auto          # never prompt; blocks return the reason to the agent
+pi install ./pi-extension                    # or: pi -e ./pi-extension/index.ts for one run
+pi --system-one-auto-mode auto               # never prompt; blocks return the reason to the agent
+pi --system-one-auto-model lunaroute/djev    # pick the classifier for one run
 ```
 
-In the TUI, soft blocks and unsure answers prompt you (Block / Allow once). HARD blocks never prompt. If the monitor is unreachable or errors, the call is held for you (or blocked without a UI). `/jev-auto on|off|status` toggles it. Set `JEV_AUTO_HOME` if the extension lives outside this repo. A tuned program at `bench/results/tuned_monitor.json` is loaded automatically.
+The default classifier is `lunaroute/djev`, using your Lunaroute login in Pi. `/system-one-auto model` lists every classifier your credentials can reach and saves the choice to `~/.pi/agent/system-one-auto.json`. Models with under 32k context, or on a non-System-One API, are flagged. `/system-one-auto on|off|status` toggles the monitor. `SYSTEM_ONE_AUTO_TIMEOUT_MS` sets the classifier timeout (default 10000).
+
+HARD blocks never prompt. In the TUI, soft blocks and unsure answers ask you (Block / Allow once). Any failure (missing model, timeout, error, partial answer, a state too large for the model) holds the call for you, or blocks it without a UI.
+
+Two workarounds live in `pi-extension/src/transport.ts`. `@lunaroute/pi-extension` 0.14.1 cannot load Pi's System One adapter, so System One models fall back to the provider's `/systemone` endpoint with the auth Pi resolves. And models that cap questions or input tokens per request get parallel batches that share the state; the caps are learned from the model's rejections, so the first judged call of a session takes a few extra round trips.
+
+### Revising the program
+
+The Python program in `jev_auto/` is the source. The TypeScript is generated from it:
+
+```bash
+uv run python -m bench.run                          # measure against Jev
+uv run python -m scripts.export_ts --golden         # regenerate src/program.generated.ts and test/golden.json
+(cd pi-extension && npm test)                       # TypeScript must reach Python's verdicts on every case
+(cd pi-extension && node bench/live.ts)             # measure against djev (or --model provider/id)
+```
+
+`export_ts` writes the questions, criteria, thresholds, rule table, limits, and precheck regexes. A ReAnchor run's saved program contributes only its thresholds; question text always comes from `rules.py`. Prechecks, state building, and composition are hand-ported in `pi-extension/src/`. If `npm test` fails after an export, the Python policy logic changed, and the failing case names what to port.
