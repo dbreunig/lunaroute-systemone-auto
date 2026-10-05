@@ -1,4 +1,4 @@
-/** The state the classifier sees: a port of jev_auto/state.py's builders and the sidecar's environment. */
+/** The state the classifier sees: a port of jev_auto/state.py's builders, plus the environment slots. */
 
 import { execFileSync } from "node:child_process";
 import { ENVIRONMENT_DEFAULTS, INPUT_FIELDS, INSTRUCTIONS, LIMITS, PATTERNS, QUESTIONS, type Question } from "./program.generated.ts";
